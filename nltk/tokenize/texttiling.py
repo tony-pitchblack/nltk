@@ -19,6 +19,11 @@ from nltk.tokenize.api import TokenizerI
 BLOCK_COMPARISON, VOCABULARY_INTRODUCTION = 0, 1
 LC, HC = 0, 1
 DEFAULT_SMOOTHING = [0]
+LANG_ALPHABET_DICT = {
+    'russian': 'а-я',
+    'english': 'a-z'
+    # TODO: add more languages to match nltk.corpus.stopwords.fileids()
+}
 
 
 class TextTilingTokenizer(TokenizerI):
@@ -52,6 +57,9 @@ class TextTilingTokenizer(TokenizerI):
     :param cutoff_policy: The policy used to determine the number of boundaries:
       `HC` (default) or `LC`
     :type cutoff_policy: constant
+    :languages: list of languages used by the model. Each language in the 'languages' list should be one of
+      strings supported by nltk.corpus.stopwords. For full list of supported languages
+      use nltk.corpus.stopwords.fileids(). Currently only 'english' and 'russian' are supported.
 
     >>> from nltk.corpus import brown
     >>> tt = TextTilingTokenizer(demo_mode=True)
@@ -72,11 +80,20 @@ class TextTilingTokenizer(TokenizerI):
         smoothing_rounds=1,
         cutoff_policy=HC,
         demo_mode=False,
+        languages=['english']
     ):
         if stopwords is None:
-            from nltk.corpus import stopwords
+            from nltk.corpus import stopwords as sw
 
-            stopwords = stopwords.words("english")
+            stopwords = []
+            try:
+                for language in languages:
+                    stopwords.extend(sw.words(language))
+            except OSError as e:
+                print(
+                    f"Supplied 'languages' list is incorrect."
+                    f"\nAvailable languages: {LANG_ALPHABET_DICT.keys()}")
+
         self.__dict__.update(locals())
         del self.__dict__["self"]
 
@@ -91,8 +108,15 @@ class TextTilingTokenizer(TokenizerI):
         # Tokenization step starts here
 
         # Remove punctuation
+        nonpunct_chars = r"\-' \n\t"
+        for lang, alphabet in LANG_ALPHABET_DICT.items():
+            if lang in self.languages:
+                nonpunct_chars += alphabet
+        nonpunct_chars = f"[{nonpunct_chars}]"
+
         nopunct_text = "".join(
-            c for c in lowercase_text if re.match(r"[a-z\-' \n\t]", c)
+            c for c in lowercase_text if re.match(nonpunct_chars, c)
+
         )
         nopunct_par_breaks = self._mark_paragraph_breaks(nopunct_text)
 
@@ -118,7 +142,8 @@ class TextTilingTokenizer(TokenizerI):
         if self.similarity_method == BLOCK_COMPARISON:
             gap_scores = self._block_comparison(tokseqs, token_table)
         elif self.similarity_method == VOCABULARY_INTRODUCTION:
-            raise NotImplementedError("Vocabulary introduction not implemented")
+            raise NotImplementedError(
+                "Vocabulary introduction not implemented")
         else:
             raise ValueError(
                 f"Similarity method {self.similarity_method} not recognized"
@@ -127,7 +152,8 @@ class TextTilingTokenizer(TokenizerI):
         if self.smoothing_method == DEFAULT_SMOOTHING:
             smooth_scores = self._smooth_scores(gap_scores)
         else:
-            raise ValueError(f"Smoothing method {self.smoothing_method} not recognized")
+            raise ValueError(
+                f"Smoothing method {self.smoothing_method} not recognized")
         # End of Lexical score Determination
 
         # Boundary identification
@@ -161,7 +187,8 @@ class TextTilingTokenizer(TokenizerI):
         """Implements the block comparison method"""
 
         def blk_frq(tok, block):
-            ts_occs = filter(lambda o: o[0] in block, token_table[tok].ts_occurences)
+            ts_occs = filter(lambda o: o[0] in block,
+                             token_table[tok].ts_occurences)
             freq = sum(tsocc[1] for tsocc in ts_occs)
             return freq
 
@@ -179,15 +206,18 @@ class TextTilingTokenizer(TokenizerI):
             else:
                 window_size = self.k
 
-            b1 = [ts.index for ts in tokseqs[curr_gap - window_size + 1 : curr_gap + 1]]
-            b2 = [ts.index for ts in tokseqs[curr_gap + 1 : curr_gap + window_size + 1]]
+            b1 = [ts.index for ts in tokseqs[curr_gap -
+                                             window_size + 1: curr_gap + 1]]
+            b2 = [ts.index for ts in tokseqs[curr_gap +
+                                             1: curr_gap + window_size + 1]]
 
             for t in token_table:
                 score_dividend += blk_frq(t, b1) * blk_frq(t, b2)
                 score_divisor_b1 += blk_frq(t, b1) ** 2
                 score_divisor_b2 += blk_frq(t, b2) ** 2
             try:
-                score = score_dividend / math.sqrt(score_divisor_b1 * score_divisor_b2)
+                score = score_dividend / \
+                    math.sqrt(score_divisor_b1 * score_divisor_b2)
             except ZeroDivisionError:
                 pass  # score += 0.0
 
@@ -198,7 +228,8 @@ class TextTilingTokenizer(TokenizerI):
     def _smooth_scores(self, gap_scores):
         "Wraps the smooth function from the SciPy Cookbook"
         return list(
-            smooth(numpy.array(gap_scores[:]), window_len=self.smoothing_width + 1)
+            smooth(numpy.array(gap_scores[:]),
+                   window_len=self.smoothing_width + 1)
         )
 
     def _mark_paragraph_breaks(self, text):
@@ -227,7 +258,7 @@ class TextTilingTokenizer(TokenizerI):
         for match in matches:
             wrdindex_list.append((match.group(), match.start()))
         return [
-            TokenSequence(i / w, wrdindex_list[i : i + w])
+            TokenSequence(i / w, wrdindex_list[i: i + w])
             for i in range(0, len(wrdindex_list), w)
         ]
 
@@ -264,7 +295,8 @@ class TextTilingTokenizer(TokenizerI):
 
                     if token_table[word].last_tok_seq != current_tok_seq:
                         token_table[word].last_tok_seq = current_tok_seq
-                        token_table[word].ts_occurences.append([current_tok_seq, 1])
+                        token_table[word].ts_occurences.append(
+                            [current_tok_seq, 1])
                     else:
                         token_table[word].ts_occurences[-1][1] += 1
                 else:  # new word
@@ -442,7 +474,8 @@ def smooth(x, window_len=11, window="flat"):
             "Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'"
         )
 
-    s = numpy.r_[2 * x[0] - x[window_len:1:-1], x, 2 * x[-1] - x[-1:-window_len:-1]]
+    s = numpy.r_[2 * x[0] - x[window_len:1:-1],
+                 x, 2 * x[-1] - x[-1:-window_len:-1]]
 
     # print(len(s))
     if window == "flat":  # moving average
@@ -452,7 +485,7 @@ def smooth(x, window_len=11, window="flat"):
 
     y = numpy.convolve(w / w.sum(), s, mode="same")
 
-    return y[window_len - 1 : -window_len + 1]
+    return y[window_len - 1: -window_len + 1]
 
 
 def demo(text=None):
